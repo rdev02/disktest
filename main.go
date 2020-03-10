@@ -33,7 +33,7 @@ func main() {
 	flag.Uint64Var(&cmdFlags.size, "size", cmdFlags.size, "the size to test with. set this to the volume size. default 1GB")
 	flag.StringVar(&cmdFlags.verify, "verify", cmdFlags.verify, "verify results via")
 
-	res, err := generateLen(10*sizeFormat.MB, "./tst")
+	res, err := generateLen(1.5*sizeFormat.KB, "./tst")
 	if err != nil {
 		fmt.Errorf("could not write %v", err)
 		return
