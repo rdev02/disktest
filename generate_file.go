@@ -13,7 +13,8 @@ import (
 
 const defaultBuffer = 20 * sizeFormat.MB
 
-func generateLen(size uint64, path string) (string, error) {
+//GenerateLen generates a file of size at path, returns MD5 hash.
+func GenerateLen(size uint64, path string) (string, error) {
 	if size == 0 {
 		return "", errors.New("size must be greater then 0")
 	}
