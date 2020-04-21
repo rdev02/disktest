@@ -6,6 +6,8 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sync"
 	"time"
 
 	sizeFormat "github.com/rdev02/size-format"
@@ -35,9 +37,74 @@ var (
 	largeFileSizeConstraint = tempFileSizeConstraint{min: 10 * sizeFormat.GB, max: 60 * sizeFormat.GB}
 )
 
-//GenerateVolume generates volume of maxSize files in basePath
-func GenerateVolume(ctx context.Context, workChan chan<- (*TempFile), basePath string, maxVolumeSize uint64) {
+//GenerateCmd starts the fs population process and recording of such process, if indicated by recorder
+func GenerateCmd(ctx context.Context, rootPath string, size uint64, recorder *IFileRecorder, errorChan chan<- error) *sync.WaitGroup {
+	chanBuff := runtime.NumCPU() - 1
+	if chanBuff == 0 {
+		chanBuff = 1
+	}
+
+	workQueue := make(chan (*TempFile), chanBuff)
+	go func() {
+		defer close(workQueue)
+		generateVolume(ctx, workQueue, rootPath, size, errorChan)
+	}()
+
+	doneQueue := make(chan (*TempFile))
+	var wg sync.WaitGroup
+	wg.Add(chanBuff)
+	go func() {
+		defer close(doneQueue)
+
+		//start file producing routines
+		for i := 0; i < chanBuff; i++ {
+
+			go writeVolume(ctx, workQueue, doneQueue, wg, errorChan)
+		}
+
+		wg.Wait()
+	}()
+
+	if recorder != nil {
+		go recordVolume(ctx, recorder, doneQueue, errorChan)
+	} else {
+		go logProgressToStdout(ctx, doneQueue)
+	}
+
+	return &wg
+}
+
+func logProgressToStdout(ctx context.Context, doneQueue <-chan (*TempFile)) {
+	for workItem := range processOrDone(ctx, doneQueue) {
+		fmt.Println("generated:", workItem)
+	}
+}
+
+func writeVolume(ctx context.Context, workQueue <-chan (*TempFile), doneQueue chan<- (*TempFile), wg sync.WaitGroup, errChan chan<- error) {
+	defer wg.Done()
+
+	for workItem := range processOrDone(ctx, workQueue) {
+		err := writeRandomFile(ctx, workItem)
+		if err != nil {
+			errChan <- err
+		}
+	}
+}
+
+func writeRandomFile(ctx context.Context, workItem *TempFile) error {
+	fmt.Fprintln(os.Stdout, "generating", sizeFormat.ToString(workItem.size), "at", workItem.path)
+	fileHash, err := GenerateLen(workItem.size, workItem.path)
+	if err != nil {
+		return fmt.Errorf("error while generating %s: %v", workItem.path, err)
+	}
+	workItem.hash = fileHash
+
+	return nil
+}
+
+func generateVolume(ctx context.Context, workChan chan<- (*TempFile), basePath string, maxVolumeSize uint64, errChan chan<- error) {
 	rand.Seed(time.Now().UnixNano())
+	defer close(workChan)
 
 	var maxTotalLargeFileSize uint64 = uint64(float64(maxVolumeSize) * maxLargeFilesShare)
 	var maxTotalMedFileSize uint64 = uint64(float64(maxVolumeSize) * maxMedFilesShare)
@@ -64,15 +131,12 @@ func GenerateVolume(ctx context.Context, workChan chan<- (*TempFile), basePath s
 		queueElement, err := q.QueueDequeue()
 
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			fmt.Fprintln(os.Stderr, "GenerateVolume: cancelling execution")
-			_, cancel := context.WithCancel(ctx)
-			cancel()
-			break
+			errChan <- err
+			continue
 		}
 
 		path := (*queueElement).(volumePathFolder)
-		maxVolumeSize = generateFilesForPathElement(ctx, &path, sizeGenerators, maxVolumeSize, workChan)
+		maxVolumeSize = generateFilesForPathElement(&path, sizeGenerators, maxVolumeSize, workChan)
 
 		if maxVolumeSize <= 0 {
 			break
@@ -80,16 +144,19 @@ func GenerateVolume(ctx context.Context, workChan chan<- (*TempFile), basePath s
 
 		// more to generate in subfolders
 		for i := 0; i < numSubfolders; i++ {
-			q.QueueEnqueue(volumePathFolder{
+			_, err := q.QueueEnqueue(volumePathFolder{
 				basePath: filepath.Join(path.basePath, fmt.Sprintf("subfolder_%d.tmp", i)),
 				filesNum: numFilesPerFolder,
 			})
+			if err != nil {
+				errChan <- err
+				break
+			}
 		}
 	}
 }
 
 func generateFilesForPathElement(
-	ctx context.Context,
 	pathElement *volumePathFolder,
 	sizeGenerators []func() uint64,
 	maxVolumeSize uint64,
@@ -101,12 +168,6 @@ func generateFilesForPathElement(
 			// if generated enough for this folder: back out
 			if pathElement.filesNum == 0 {
 				break
-			}
-
-			select {
-			case <-ctx.Done():
-				return maxVolumeSize
-			default:
 			}
 
 			generatedFileSize := sizeGen()

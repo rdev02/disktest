@@ -9,5 +9,4 @@ func TestNewQueue(t *testing.T) {
 	if q == nil {
 		t.Error("Bad constructor")
 	}
-	q.Enqueue(nil)
 }

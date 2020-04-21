@@ -46,7 +46,8 @@ func GenerateLen(size uint64, path string) (string, error) {
 	return string(hash.Sum(nil)), nil
 }
 
-func getFileMd5(path string) (string, error) {
+//GetFileMd5 generates MD5 of the file at path
+func GetFileMd5(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err

@@ -5,7 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"runtime"
+	"strings"
+	"sync"
 
 	sizeFormat "github.com/rdev02/size-format"
 )
@@ -20,6 +21,7 @@ type (
 		rootPath string
 		size     uint64
 		verify   string
+		generate string
 	}
 
 	//TempFile connects main/generator/processor and recorder
@@ -28,13 +30,25 @@ type (
 		size uint64
 		hash string
 	}
+
+	IFileRecorder interface {
+		RecordFile(file *TempFile) error
+		MarkFileExits(file *TempFile) (bool, error)
+		VerifyFileExits(file *TempFile) (bool, error)
+		FilesNotCheckedYet() ([]*TempFile, error)
+	}
 )
+
+func (tf *TempFile) ToString() string {
+	return fmt.Sprint(tf.path, "size", sizeFormat.ToString(tf.size), "hash", tf.hash)
+}
 
 func defaultFlags() *cmdFlags {
 	defaults := cmdFlags{
 		rootPath: ".",
 		size:     sizeFormat.GB,
 		verify:   verifyInMem,
+		generate: "y",
 	}
 
 	return &defaults
@@ -42,78 +56,105 @@ func defaultFlags() *cmdFlags {
 
 func main() {
 	cmdFlags := defaultFlags()
-	flag.Uint64Var(&cmdFlags.size, "size", cmdFlags.size, "the size to test with. set this to the volume size. default 1GB")
-	flag.StringVar(&cmdFlags.verify, "verify", cmdFlags.verify, "verify results via")
+	flag.Uint64Var(&cmdFlags.size, "size", cmdFlags.size, "the total size of files to generate. no effect if used without the --generate flag")
+	flag.StringVar(&cmdFlags.generate, "generate", cmdFlags.generate, "generate files at the location specified: y/n")
+	flag.StringVar(&cmdFlags.verify, "verify", cmdFlags.verify, fmt.Sprintf("verify results via %s/%s/none", verifyInMem, verifyInSQLite))
 
 	flag.Parse()
 	if len(flag.Args()) != 1 {
 		fmt.Println("path not provided. syntax: disktest [opts] path")
 		flag.PrintDefaults()
+		return
 	}
 
-	chanBuff := runtime.NumCPU() - 1
-	if chanBuff == 0 {
-		chanBuff = 1
+	var recordingStrategy IFileRecorder = nil
+	switch cmdFlags.verify {
+	case verifyInMem:
+		recordingStrategy = NewInMemRecorder()
+	case verifyInSQLite:
+		recordingStrategy = NewSqlLiteRecorder()
+	default:
 	}
-	workQueue := make(chan (*TempFile), chanBuff)
-	doneQueue := make(chan (*TempFile))
-	defer close(workQueue)
 
-	ctx := context.Background()
+	ctx, stopExecution := context.WithCancel(context.Background())
 
 	// start files generation routine
-	go GenerateVolume(ctx, workQueue, flag.Args()[0], cmdFlags.size)
-
-	//start file producing routines
-	for i := 0; i < chanBuff; i++ {
-		go writeVolume(ctx, workQueue)
+	rootPath := flag.Args()[0]
+	if len(rootPath) == 0 {
+		rootPath = cmdFlags.rootPath
 	}
 
-	// start recording routine
-	go recordVolume(ctx, doneQueue)
-}
+	var errorChan = make(chan error)
 
-func recordVolume(ctx context.Context, doneQueue <-chan (*TempFile)) {
-	for {
-		select {
-		case <-ctx.Done():
-			break
-		case generatedFile, ok := <-doneQueue:
-			if !ok {
-				break
+	var generateDone *sync.WaitGroup
+	if strings.Compare(cmdFlags.generate, "y") == 0 {
+		generateDone = GenerateCmd(ctx, cmdFlags.rootPath, cmdFlags.size, &recordingStrategy, errorChan)
+	}
+
+	var verifyDone *sync.WaitGroup
+	if len(cmdFlags.verify) > 0 {
+		go func() {
+			// verify strictly after all recording has been done
+			if generateDone != nil {
+				generateDone.Wait()
 			}
 
-			recordRandomFile(generatedFile)
-		}
+			verifyDone = VerifyCmd(ctx, &recordingStrategy, cmdFlags.rootPath, errorChan)
+		}()
 	}
+
+	select {
+	case <-ctx.Done():
+		stopExecution()
+		fmt.Fprintln(os.Stderr, ctx.Err())
+	case numDone := <-waitForAllCommands(generateDone, verifyDone):
+		fmt.Println(numDone, "tasks completed")
+	}
+
+	fmt.Println("All done, exiting.")
 }
 
-func writeVolume(ctx context.Context, workQueue <-chan (*TempFile)) <-chan (*TempFile) {
-	for {
-		select {
-		case <-ctx.Done():
-			break
-		case workItem, ok := <-workQueue:
-			if !ok {
-				break
+func waitForAllCommands(cmds ...*sync.WaitGroup) chan rune {
+	res := make(chan rune)
+	var cnt rune
+
+	go func() {
+		defer close(res)
+		for _, cmd := range cmds {
+			if cmd != nil {
+				cmd.Wait()
+				cnt++
 			}
-			writeRandomFile(ctx, workItem)
 		}
-	}
+		res <- cnt
+	}()
+
+	return res
 }
 
-func writeRandomFile(ctx context.Context, workItem *TempFile) {
-	fmt.Fprintln(os.Stdout, "generating", sizeFormat.ToString(workItem.size), "at", workItem.path)
-	fileHash, err := GenerateLen(workItem.size, workItem.path)
-	if err != nil {
-		fmt.Fprint(os.Stderr, fmt.Errorf("error while generating %s: %v", workItem.path, err))
-		fmt.Println("cancelling execution")
-		_, cancel := context.WithCancel(ctx)
-		cancel()
-	}
-	workItem.hash = fileHash
-}
+func processOrDone(ctx context.Context, ch <-chan (*TempFile)) <-chan (*TempFile) {
+	res := make(chan (*TempFile))
 
-func recordRandomFile(tmpFile *TempFile) {
-	fmt.Fprintln(os.Stdout, "Storing result for", tmpFile.path, "size", tmpFile.size, "hash", tmpFile.hash)
+	go func() {
+		defer close(res)
+	main:
+		for {
+			select {
+			case <-ctx.Done():
+				fmt.Fprintln(os.Stderr, "context interrupt")
+				fmt.Fprintln(os.Stderr, ctx.Err())
+				break main
+			case workItem, ok := <-ch:
+				if !ok {
+					break main
+				}
+				select {
+				case res <- workItem:
+				case <-ctx.Done():
+				}
+			}
+		}
+	}()
+
+	return res
 }
