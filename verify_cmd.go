@@ -51,7 +51,7 @@ func verifyVolume(ctx context.Context, recorder *IFileRecorder, volumeRoot strin
 
 		file := TempFile{
 			path: path,
-			size: uint64(info.Size()),
+			size: info.Size(),
 			hash: fileHash,
 		}
 

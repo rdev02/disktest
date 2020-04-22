@@ -20,7 +20,7 @@ type (
 	}
 
 	tempFileSizeConstraint struct {
-		min, max uint64
+		min, max int64
 	}
 )
 
@@ -38,7 +38,7 @@ var (
 )
 
 //GenerateCmd starts the fs population process and recording of such process, if indicated by recorder
-func GenerateCmd(ctx context.Context, rootPath string, size uint64, recorder *IFileRecorder, errorChan chan<- error) *sync.WaitGroup {
+func GenerateCmd(ctx context.Context, rootPath string, size int64, recorder *IFileRecorder, errorChan chan<- error) *sync.WaitGroup {
 	chanBuff := runtime.NumCPU() - 1
 	if chanBuff == 0 {
 		chanBuff = 1
@@ -58,8 +58,7 @@ func GenerateCmd(ctx context.Context, rootPath string, size uint64, recorder *IF
 
 		//start file producing routines
 		for i := 0; i < chanBuff; i++ {
-
-			go writeVolume(ctx, workQueue, doneQueue, wg, errorChan)
+			go writeVolume(ctx, workQueue, doneQueue, &wg, errorChan)
 		}
 
 		wg.Wait()
@@ -80,7 +79,7 @@ func logProgressToStdout(ctx context.Context, doneQueue <-chan (*TempFile)) {
 	}
 }
 
-func writeVolume(ctx context.Context, workQueue <-chan (*TempFile), doneQueue chan<- (*TempFile), wg sync.WaitGroup, errChan chan<- error) {
+func writeVolume(ctx context.Context, workQueue <-chan (*TempFile), doneQueue chan<- (*TempFile), wg *sync.WaitGroup, errChan chan<- error) {
 	defer wg.Done()
 
 	for workItem := range processOrDone(ctx, workQueue) {
@@ -88,12 +87,13 @@ func writeVolume(ctx context.Context, workQueue <-chan (*TempFile), doneQueue ch
 		if err != nil {
 			errChan <- err
 		}
+		doneQueue <- workItem
 	}
 }
 
 func writeRandomFile(ctx context.Context, workItem *TempFile) error {
-	fmt.Fprintln(os.Stdout, "generating", sizeFormat.ToString(workItem.size), "at", workItem.path)
-	fileHash, err := GenerateLen(workItem.size, workItem.path)
+	fmt.Fprintln(os.Stdout, "generating", workItem)
+	fileHash, err := GenerateLen(ctx, workItem.size, workItem.path)
 	if err != nil {
 		return fmt.Errorf("error while generating %s: %v", workItem.path, err)
 	}
@@ -102,15 +102,15 @@ func writeRandomFile(ctx context.Context, workItem *TempFile) error {
 	return nil
 }
 
-func generateVolume(ctx context.Context, workChan chan<- (*TempFile), basePath string, maxVolumeSize uint64, errChan chan<- error) {
+func generateVolume(ctx context.Context, workChan chan<- (*TempFile), basePath string, maxVolumeSize int64, errChan chan<- error) {
 	rand.Seed(time.Now().UnixNano())
 	defer close(workChan)
 
-	var maxTotalLargeFileSize uint64 = uint64(float64(maxVolumeSize) * maxLargeFilesShare)
-	var maxTotalMedFileSize uint64 = uint64(float64(maxVolumeSize) * maxMedFilesShare)
+	var maxTotalLargeFileSize int64 = int64(float64(maxVolumeSize) * maxLargeFilesShare)
+	var maxTotalMedFileSize int64 = int64(float64(maxVolumeSize) * maxMedFilesShare)
 	maxTotalSmallFileSize := maxVolumeSize - (maxTotalLargeFileSize + maxTotalMedFileSize)
 
-	sizeGenerators := []func() uint64{
+	sizeGenerators := []func() int64{
 		getRandomFileSizeFunc(&largeFileSizeConstraint, maxTotalLargeFileSize),
 		getRandomFileSizeFunc(&medFileSizeConstraint, maxTotalMedFileSize),
 		getRandomFileSizeFunc(&smallFileSizeConstraint, maxTotalSmallFileSize),
@@ -158,10 +158,10 @@ func generateVolume(ctx context.Context, workChan chan<- (*TempFile), basePath s
 
 func generateFilesForPathElement(
 	pathElement *volumePathFolder,
-	sizeGenerators []func() uint64,
-	maxVolumeSize uint64,
+	sizeGenerators []func() int64,
+	maxVolumeSize int64,
 	producerQueue chan<- (*TempFile),
-) uint64 {
+) int64 {
 	for pathElement.filesNum > 0 && maxVolumeSize > 0 {
 		fileNumBeforeGenerators := pathElement.filesNum
 		for _, sizeGen := range sizeGenerators {
@@ -192,18 +192,24 @@ func generateFilesForPathElement(
 	return maxVolumeSize
 }
 
-func addToProducerQueue(size uint64, pathElement *volumePathFolder, queue chan<- (*TempFile)) {
+func addToProducerQueue(size int64, pathElement *volumePathFolder, queue chan<- (*TempFile)) {
 	pathToGenerateAt := filepath.Join(pathElement.basePath, fmt.Sprintf("file_%d.tmp", pathElement.filesNum))
 	queue <- &TempFile{path: pathToGenerateAt, size: size}
 	pathElement.filesNum--
 }
 
-func getRandomFileSizeFunc(minMaxConstraint *tempFileSizeConstraint, capConstraint uint64) func() uint64 {
-	return func() uint64 {
-		if minMaxConstraint.max > capConstraint {
+func getRandomFileSizeFunc(minMaxConstraint *tempFileSizeConstraint, capConstraint int64) func() int64 {
+	return func() int64 {
+		if minMaxConstraint.min > capConstraint {
 			return 0
 		}
 
-		return minMaxConstraint.min + uint64(float64(minMaxConstraint.max-minMaxConstraint.max)*rand.Float64())
+		retVal := minMaxConstraint.min + rand.Int63n(minMaxConstraint.max-minMaxConstraint.min)
+
+		if retVal > capConstraint {
+			return capConstraint
+		}
+
+		return retVal
 	}
 }

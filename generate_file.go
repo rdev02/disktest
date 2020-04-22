@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"crypto/md5"
 	"errors"
+	"fmt"
 	"io"
 	"math/rand"
 	"os"
@@ -14,8 +16,8 @@ import (
 const defaultBuffer = 20 * sizeFormat.MB
 
 //GenerateLen generates a file of size at path, returns MD5 hash.
-func GenerateLen(size uint64, path string) (string, error) {
-	if size == 0 {
+func GenerateLen(ctx context.Context, size int64, path string) (string, error) {
+	if size <= 0 {
 		return "", errors.New("size must be greater then 0")
 	}
 
@@ -34,8 +36,14 @@ func GenerateLen(size uint64, path string) (string, error) {
 	tmp := make([]byte, actualBuffer)
 
 	rand.Seed(time.Now().UnixNano())
-	var written uint64 = 0
+	var written int64 = 0
 	for ; written < size; written += defaultBuffer {
+		select {
+		case <-ctx.Done():
+			break
+		default:
+		}
+
 		rand.Read(tmp)
 		_, err := hashedWriter.Write(tmp)
 		if err != nil {
@@ -43,7 +51,7 @@ func GenerateLen(size uint64, path string) (string, error) {
 		}
 	}
 
-	return string(hash.Sum(nil)), nil
+	return fmt.Sprintf("%x", string(hash.Sum(nil))), nil
 }
 
 //GetFileMd5 generates MD5 of the file at path
@@ -59,5 +67,5 @@ func GetFileMd5(path string) (string, error) {
 		return "", err
 	}
 
-	return string(h.Sum(nil)), nil
+	return fmt.Sprintf("%x", string(h.Sum(nil))), nil
 }

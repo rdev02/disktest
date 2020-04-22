@@ -19,7 +19,7 @@ const (
 type (
 	cmdFlags struct {
 		rootPath string
-		size     uint64
+		size     int64
 		verify   string
 		generate string
 	}
@@ -27,7 +27,7 @@ type (
 	//TempFile connects main/generator/processor and recorder
 	TempFile struct {
 		path string
-		size uint64
+		size int64
 		hash string
 	}
 
@@ -39,8 +39,8 @@ type (
 	}
 )
 
-func (tf *TempFile) ToString() string {
-	return fmt.Sprint(tf.path, "size", sizeFormat.ToString(tf.size), "hash", tf.hash)
+func (tf *TempFile) String() string {
+	return fmt.Sprint(tf.path, " size: ", sizeFormat.ToString(uint64(tf.size)), " hash: ", tf.hash)
 }
 
 func defaultFlags() *cmdFlags {
@@ -56,7 +56,7 @@ func defaultFlags() *cmdFlags {
 
 func main() {
 	cmdFlags := defaultFlags()
-	flag.Uint64Var(&cmdFlags.size, "size", cmdFlags.size, "the total size of files to generate. no effect if used without the --generate flag")
+	flag.Int64Var(&cmdFlags.size, "size", cmdFlags.size, "the total size of files to generate. no effect if used without the --generate flag")
 	flag.StringVar(&cmdFlags.generate, "generate", cmdFlags.generate, "generate files at the location specified: y/n")
 	flag.StringVar(&cmdFlags.verify, "verify", cmdFlags.verify, fmt.Sprintf("verify results via %s/%s/none", verifyInMem, verifyInSQLite))
 
