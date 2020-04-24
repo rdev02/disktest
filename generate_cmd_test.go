@@ -10,6 +10,73 @@ import (
 	sizeFormat "github.com/rdev02/size-format"
 )
 
+func TestGenerateCmd(t *testing.T) {
+	rootPath := "build/test"
+	size := 10 * sizeFormat.MB
+	errCh := make(chan error)
+
+	os.MkdirAll(rootPath, 0700)
+	defer os.RemoveAll(rootPath)
+
+	done := GenerateCmd(context.Background(), rootPath, int64(size), nil, errCh)
+	done.Wait()
+}
+
+func TestGenerateVolume(t *testing.T) {
+	rootPath := "build/test"
+	size := 131 * sizeFormat.GB
+	errCh := make(chan error)
+
+	workQ := generateVolume(context.Background(), 2, rootPath, int64(size), errCh)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	func() {
+		defer wg.Done()
+
+		totalGenerated := int64(0)
+
+	loop:
+		for {
+			select {
+			case err, ok := <-errCh:
+				if err != nil || !ok {
+					t.Error(err)
+					break loop
+				}
+			case val, ok := <-workQ:
+				if !ok {
+					break loop
+				}
+				fmt.Println("generated:", sizeFormat.ToString(uint64(val.size)))
+				totalGenerated += val.size
+			}
+		}
+
+		if int64(size) != totalGenerated {
+			t.Error("exected", sizeFormat.ToString(uint64(size)), "but generated only", sizeFormat.ToString(uint64(totalGenerated)))
+		}
+		fmt.Println("total generated:", sizeFormat.ToString(uint64(totalGenerated)))
+	}()
+
+	wg.Wait()
+}
+
+func TestLogProgressToStdout(t *testing.T) {
+	ch := make(chan (*TempFile))
+	go func() {
+		defer close(ch)
+		ch <- &TempFile{}
+	}()
+
+	logProgressToStdout(context.Background(), ch)
+
+	ch = make(chan (*TempFile))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	logProgressToStdout(ctx, ch)
+}
+
 func TestWriteVolume(t *testing.T) {
 	errCh := make(chan error)
 	workQ := make(chan (*TempFile))
@@ -36,6 +103,7 @@ func TestWriteVolume(t *testing.T) {
 				fmt.Println("processed", proc, *cnt)
 				defer os.Remove(proc.path)
 				*cnt++
+				// this is less then ideal...
 				if *cnt == 2 {
 					close(doneQ)
 				}

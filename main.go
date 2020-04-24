@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime/pprof"
 	"strings"
 	"sync"
 
@@ -18,10 +19,12 @@ const (
 
 type (
 	cmdFlags struct {
-		rootPath string
-		size     int64
-		verify   string
-		generate string
+		rootPath   string
+		size       int64
+		verify     string
+		generate   string
+		cpuprofile string
+		memprofile string
 	}
 
 	//TempFile connects main/generator/processor and recorder
@@ -59,8 +62,32 @@ func main() {
 	flag.Int64Var(&cmdFlags.size, "size", cmdFlags.size, "the total size of files to generate. no effect if used without the --generate flag")
 	flag.StringVar(&cmdFlags.generate, "generate", cmdFlags.generate, "generate files at the location specified: y/n")
 	flag.StringVar(&cmdFlags.verify, "verify", cmdFlags.verify, fmt.Sprintf("verify results via %s/%s/none", verifyInMem, verifyInSQLite))
+	flag.StringVar(&cmdFlags.cpuprofile, "cpuprofile", "", "write cpu profile to file")
+	flag.StringVar(&cmdFlags.memprofile, "memprofile", "", "write mem profile to file")
 
 	flag.Parse()
+
+	// cpu profiling
+	if cmdFlags.cpuprofile != "" {
+		f, err := os.Create(cmdFlags.cpuprofile)
+		if err != nil {
+			fmt.Println(err)
+		}
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+		defer f.Close()
+	}
+
+	// mem profiling
+	if cmdFlags.memprofile != "" {
+		f, err := os.Create(cmdFlags.memprofile)
+		if err != nil {
+			fmt.Println(err)
+		}
+		defer pprof.WriteHeapProfile(f)
+		defer f.Close()
+	}
+
 	if len(flag.Args()) != 1 {
 		fmt.Println("path not provided. syntax: disktest [opts] path")
 		flag.PrintDefaults()
@@ -85,6 +112,7 @@ func main() {
 	}
 
 	var errorChan = make(chan error)
+	defer close(errorChan)
 
 	var generateDone *sync.WaitGroup
 	if strings.Compare(cmdFlags.generate, "y") == 0 {
@@ -103,12 +131,24 @@ func main() {
 		}()
 	}
 
-	select {
-	case <-ctx.Done():
-		stopExecution()
-		fmt.Fprintln(os.Stderr, ctx.Err())
-	case numDone := <-waitForAllCommands(generateDone, verifyDone):
-		fmt.Println(numDone, "tasks completed")
+loop:
+	for {
+		select {
+		case err, ok := <-errorChan:
+			//for now die on any error
+			if err != nil || !ok {
+				fmt.Fprintln(os.Stderr, err)
+				stopExecution()
+			}
+			break loop
+		case <-ctx.Done():
+			stopExecution()
+			fmt.Fprintln(os.Stderr, ctx.Err())
+			break loop
+		case numDone := <-waitForAllCommands(generateDone, verifyDone):
+			fmt.Println(numDone, "tasks completed")
+			break loop
+		}
 	}
 
 	fmt.Println("All done, exiting.")

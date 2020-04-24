@@ -43,12 +43,9 @@ func GenerateCmd(ctx context.Context, rootPath string, size int64, recorder *IFi
 	if chanBuff == 0 {
 		chanBuff = 1
 	}
+	fmt.Println("generating using", chanBuff, "concurrent writers")
 
-	workQueue := make(chan (*TempFile), chanBuff)
-	go func() {
-		defer close(workQueue)
-		generateVolume(ctx, workQueue, rootPath, size, errorChan)
-	}()
+	workQueue := generateVolume(ctx, chanBuff, rootPath, size, errorChan)
 
 	doneQueue := make(chan (*TempFile))
 	var wg sync.WaitGroup
@@ -102,9 +99,8 @@ func writeRandomFile(ctx context.Context, workItem *TempFile) error {
 	return nil
 }
 
-func generateVolume(ctx context.Context, workChan chan<- (*TempFile), basePath string, maxVolumeSize int64, errChan chan<- error) {
+func generateVolume(ctx context.Context, chanBuff int, basePath string, maxVolumeSize int64, errChan chan<- error) <-chan (*TempFile) {
 	rand.Seed(time.Now().UnixNano())
-	defer close(workChan)
 
 	var maxTotalLargeFileSize int64 = int64(float64(maxVolumeSize) * maxLargeFilesShare)
 	var maxTotalMedFileSize int64 = int64(float64(maxVolumeSize) * maxMedFilesShare)
@@ -122,38 +118,45 @@ func generateVolume(ctx context.Context, workChan chan<- (*TempFile), basePath s
 		filesNum: numFilesPerFolder,
 	})
 
-	for q.size != 0 && maxVolumeSize > 0 {
-		select {
-		case <-ctx.Done():
-			fmt.Println("generateVolume: context exit")
-		default:
-		}
-		queueElement, err := q.QueueDequeue()
+	workChan := make(chan (*TempFile), chanBuff)
+	go func() {
+		defer close(workChan)
 
-		if err != nil {
-			errChan <- err
-			continue
-		}
+		for q.size != 0 && maxVolumeSize > 0 {
+			select {
+			case <-ctx.Done():
+				fmt.Println("generateVolume: context exit")
+			default:
+			}
+			queueElement, err := q.QueueDequeue()
 
-		path := (*queueElement).(volumePathFolder)
-		maxVolumeSize = generateFilesForPathElement(&path, sizeGenerators, maxVolumeSize, workChan)
-
-		if maxVolumeSize <= 0 {
-			break
-		}
-
-		// more to generate in subfolders
-		for i := 0; i < numSubfolders; i++ {
-			_, err := q.QueueEnqueue(volumePathFolder{
-				basePath: filepath.Join(path.basePath, fmt.Sprintf("subfolder_%d.tmp", i)),
-				filesNum: numFilesPerFolder,
-			})
 			if err != nil {
 				errChan <- err
+				continue
+			}
+
+			path := (*queueElement).(volumePathFolder)
+			maxVolumeSize = generateFilesForPathElement(&path, sizeGenerators, maxVolumeSize, workChan)
+
+			if maxVolumeSize <= 0 {
 				break
 			}
+
+			// more to generate in subfolders
+			for i := 0; i < numSubfolders; i++ {
+				_, err := q.QueueEnqueue(volumePathFolder{
+					basePath: filepath.Join(path.basePath, fmt.Sprintf("subfolder_%d.tmp", i)),
+					filesNum: numFilesPerFolder,
+				})
+				if err != nil {
+					errChan <- err
+					break
+				}
+			}
 		}
-	}
+	}()
+
+	return workChan
 }
 
 func generateFilesForPathElement(
