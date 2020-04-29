@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,7 +11,11 @@ import (
 )
 
 //VerifyCmd start the generated fs verification process
-func VerifyCmd(ctx context.Context, recorder *IFileRecorder, volumeRoot string, errorChan chan<- error) *sync.WaitGroup {
+func VerifyCmd(ctx context.Context, recorder *IFileRecorder, volumeRoot string, errorChan chan<- error) (*sync.WaitGroup, error) {
+	if recorder == nil {
+		return nil, errors.New("recorder can't be nil")
+	}
+
 	var wg sync.WaitGroup
 	wg.Add(1)
 
@@ -19,7 +24,7 @@ func VerifyCmd(ctx context.Context, recorder *IFileRecorder, volumeRoot string, 
 		verifyVolume(ctx, recorder, volumeRoot, errorChan)
 	}()
 
-	return &wg
+	return &wg, nil
 }
 
 func verifyVolume(ctx context.Context, recorder *IFileRecorder, volumeRoot string, errorChan chan<- error) {
@@ -29,14 +34,25 @@ func verifyVolume(ctx context.Context, recorder *IFileRecorder, volumeRoot strin
 	filepath.Walk(volumeRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "error reading", path, err)
-			_, cancel := context.WithCancel(ctx)
-			cancel()
+			errorChan <- err
 			return err
 		}
 
-		if info.IsDir() && strings.HasPrefix(info.Name(), ".") {
-			// skip hidden folders: we do not generated them
-			return filepath.SkipDir
+		select {
+		case _, ok := <-ctx.Done():
+			fmt.Println("cancelling file walk", ok)
+			return errors.New("context cancel")
+		default:
+		}
+
+		if info.IsDir() {
+			if strings.HasPrefix(info.Name(), ".") {
+				// skip hidden folders: we do not generated them
+				return filepath.SkipDir
+			}
+
+			// we are only concerned with files
+			return nil
 		}
 
 		if strings.HasPrefix(info.Name(), ".") {
@@ -46,7 +62,8 @@ func verifyVolume(ctx context.Context, recorder *IFileRecorder, volumeRoot strin
 
 		fileHash, err := GetFileMd5(path)
 		if err != nil {
-
+			errorChan <- err
+			return err
 		}
 
 		file := TempFile{
@@ -63,6 +80,7 @@ func verifyVolume(ctx context.Context, recorder *IFileRecorder, volumeRoot strin
 		_, err = rec.MarkFileExits(&file)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "ERR: could not mark file as existing ", path, file.hash)
+			errorChan <- err
 			return err
 		}
 
@@ -85,16 +103,13 @@ func verifyVolume(ctx context.Context, recorder *IFileRecorder, volumeRoot strin
 	}
 }
 
-func recordVolume(ctx context.Context, recorder *IFileRecorder, doneQueue <-chan (*TempFile), result chan<- error) {
+func recordVolume(ctx context.Context, recorder *IFileRecorder, doneQueue <-chan (*TempFile), errorChan chan<- error) {
 	rec := *recorder
-
-	// add Volume recording as a unit of work
-	defer close(result)
 
 	for workItem := range processOrDone(ctx, doneQueue) {
 		err := rec.RecordFile(workItem)
 		if err != nil {
-			result <- err
+			errorChan <- err
 			break
 		}
 	}

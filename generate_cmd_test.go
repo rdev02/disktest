@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime/pprof"
 	"sync"
 	"testing"
 
@@ -24,8 +25,16 @@ func TestGenerateCmd(t *testing.T) {
 
 func TestGenerateVolume(t *testing.T) {
 	rootPath := "build/test"
-	size := 131 * sizeFormat.GB
+	size := 10 * sizeFormat.TB //131
 	errCh := make(chan error)
+
+	// profile mem
+	f, err := os.Create("./memprofile")
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer pprof.WriteHeapProfile(f)
+	defer f.Close()
 
 	workQ := generateVolume(context.Background(), 2, rootPath, int64(size), errCh)
 
@@ -60,6 +69,8 @@ func TestGenerateVolume(t *testing.T) {
 	}()
 
 	wg.Wait()
+
+	// write mem profile
 }
 
 func TestLogProgressToStdout(t *testing.T) {

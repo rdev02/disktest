@@ -34,6 +34,7 @@ type (
 		hash string
 	}
 
+	//IFileRecorder defines methods necessary to record a file
 	IFileRecorder interface {
 		RecordFile(file *TempFile) error
 		MarkFileExits(file *TempFile) (bool, error)
@@ -127,7 +128,12 @@ func main() {
 				generateDone.Wait()
 			}
 
-			verifyDone = VerifyCmd(ctx, &recordingStrategy, cmdFlags.rootPath, errorChan)
+			wg, err := VerifyCmd(ctx, &recordingStrategy, cmdFlags.rootPath, errorChan)
+			if err != nil {
+				panic(err)
+			}
+
+			verifyDone = wg
 		}()
 	}
 

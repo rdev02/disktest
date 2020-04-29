@@ -12,11 +12,13 @@ type (
 		checked bool
 	}
 
+	//InMemRecorder holding records in memory
 	InMemRecorder struct {
 		filesMap map[string]*inMemFile
 	}
 )
 
+//NewInMemRecorder constructor
 func NewInMemRecorder() *InMemRecorder {
 	return &InMemRecorder{
 		filesMap: make(map[string]*inMemFile),
