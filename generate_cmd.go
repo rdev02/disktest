@@ -27,7 +27,7 @@ type (
 )
 
 const (
-	numFilesPerFolder  = 1001
+	numFilesPerFolder  = 500
 	numSubfolders      = 10
 	maxLargeFilesShare = .5
 	maxMedFilesShare   = .35
@@ -129,7 +129,7 @@ func generateVolume(ctx context.Context, chanBuff int, basePath string, maxVolum
 	go func() {
 		defer close(workChan)
 
-		for q.size != 0 && maxVolumeSize > 0 {
+		for q.QueueSize() != 0 && maxVolumeSize > 0 {
 			select {
 			case <-ctx.Done():
 				fmt.Println("generateVolume: context exit")

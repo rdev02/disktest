@@ -24,7 +24,7 @@ func TestGenerateCmd(t *testing.T) {
 
 func TestGenerateVolume(t *testing.T) {
 	rootPath := "build/test"
-	size := 100 * sizeFormat.TB
+	size := 131 * sizeFormat.GB
 	errCh := make(chan error)
 
 	workQ := generateVolume(context.Background(), 2, rootPath, int64(size), errCh)

@@ -32,7 +32,7 @@ func (q *Queue) QueueEnqueue(value interface{}) (int64, error) {
 		q.first = n
 		q.last = n
 	} else {
-		q.first.next = n
+		q.last.next = n
 		q.last = n
 	}
 	q.size++
