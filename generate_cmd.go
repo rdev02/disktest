@@ -22,6 +22,8 @@ type (
 	tempFileSizeConstraint struct {
 		min, max int64
 	}
+
+	writeFunc = func(ctx context.Context, workQueue <-chan (*TempFile), doneQueue chan<- (*TempFile), wg *sync.WaitGroup, errChan chan<- error)
 )
 
 const (
@@ -38,7 +40,8 @@ var (
 )
 
 //GenerateCmd starts the fs population process and recording of such process, if indicated by recorder
-func GenerateCmd(ctx context.Context, rootPath string, size int64, recorder *IFileRecorder, errorChan chan<- error) *sync.WaitGroup {
+func GenerateCmd(ctx context.Context, rootPath string, size int64, recorder *IFileRecorder, errorChan chan<- error,
+	writeFn writeFunc) *sync.WaitGroup {
 	chanBuff := runtime.NumCPU() - 1
 	if chanBuff == 0 {
 		chanBuff = 1
@@ -53,9 +56,12 @@ func GenerateCmd(ctx context.Context, rootPath string, size int64, recorder *IFi
 	go func() {
 		defer close(doneQueue)
 
+		if writeFn == nil {
+			writeFn = writeVolume
+		}
 		//start file producing routines
 		for i := 0; i < chanBuff; i++ {
-			go writeVolume(ctx, workQueue, doneQueue, &wg, errorChan)
+			go writeFn(ctx, workQueue, doneQueue, &wg, errorChan)
 		}
 
 		wg.Wait()
@@ -99,6 +105,7 @@ func writeRandomFile(ctx context.Context, workItem *TempFile) error {
 	return nil
 }
 
+//generateVolume generates the volume of TempFiles into channel it returns. async
 func generateVolume(ctx context.Context, chanBuff int, basePath string, maxVolumeSize int64, errChan chan<- error) <-chan (*TempFile) {
 	rand.Seed(time.Now().UnixNano())
 

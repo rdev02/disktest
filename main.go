@@ -117,7 +117,7 @@ func main() {
 
 	var generateDone *sync.WaitGroup
 	if strings.Compare(cmdFlags.generate, "y") == 0 {
-		generateDone = GenerateCmd(ctx, cmdFlags.rootPath, cmdFlags.size, &recordingStrategy, errorChan)
+		generateDone = GenerateCmd(ctx, cmdFlags.rootPath, cmdFlags.size, &recordingStrategy, errorChan, nil)
 	}
 
 	var verifyDone *sync.WaitGroup
