@@ -223,3 +223,19 @@ func getRandomFileSizeFunc(minMaxConstraint *tempFileSizeConstraint, capConstrai
 		return retVal
 	}
 }
+
+func pseudoWriteFile(ctx context.Context, workQueue <-chan (*TempFile), doneQueue chan<- (*TempFile), wg *sync.WaitGroup, errChan chan<- error) {
+	defer wg.Done()
+
+	hashLen := 10
+	for workItem := range processOrDone(ctx, workQueue) {
+		lenPath := len(workItem.path)
+		if lenPath >= hashLen {
+			workItem.hash = workItem.path[lenPath-hashLen:]
+		} else {
+			workItem.hash = workItem.path
+		}
+
+		doneQueue <- workItem
+	}
+}

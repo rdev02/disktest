@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -19,12 +20,13 @@ const (
 
 type (
 	cmdFlags struct {
-		rootPath   string
-		size       int64
-		verify     string
-		generate   string
-		cpuprofile string
-		memprofile string
+		rootPath       string
+		size           string
+		verify         string
+		generate       string
+		cpuprofile     string
+		memprofile     string
+		waitbeforeexit string
 	}
 
 	//TempFile connects main/generator/processor and recorder
@@ -49,10 +51,11 @@ func (tf *TempFile) String() string {
 
 func defaultFlags() *cmdFlags {
 	defaults := cmdFlags{
-		rootPath: ".",
-		size:     sizeFormat.GB,
-		verify:   verifyInMem,
-		generate: "y",
+		rootPath:       ".",
+		size:           "1GB",
+		verify:         verifyInMem,
+		generate:       "y",
+		waitbeforeexit: "n",
 	}
 
 	return &defaults
@@ -60,13 +63,20 @@ func defaultFlags() *cmdFlags {
 
 func main() {
 	cmdFlags := defaultFlags()
-	flag.Int64Var(&cmdFlags.size, "size", cmdFlags.size, "the total size of files to generate. no effect if used without the --generate flag")
+	flag.StringVar(&cmdFlags.size, "size", cmdFlags.size, "the total size of files to generate. no effect if used without the --generate flag")
 	flag.StringVar(&cmdFlags.generate, "generate", cmdFlags.generate, "generate files at the location specified: y/n")
 	flag.StringVar(&cmdFlags.verify, "verify", cmdFlags.verify, fmt.Sprintf("verify results via %s/%s/none", verifyInMem, verifyInSQLite))
 	flag.StringVar(&cmdFlags.cpuprofile, "cpuprofile", "", "write cpu profile to file")
 	flag.StringVar(&cmdFlags.memprofile, "memprofile", "", "write mem profile to file")
+	flag.StringVar(&cmdFlags.waitbeforeexit, "waitbeforeexit", cmdFlags.waitbeforeexit, "wait before exiting y/n")
 
 	flag.Parse()
+
+	sizeBytes, err := sizeFormat.ToNum(&cmdFlags.size)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("will generate", sizeFormat.ToString(sizeBytes))
 
 	// cpu profiling
 	if cmdFlags.cpuprofile != "" {
@@ -99,9 +109,12 @@ func main() {
 	switch cmdFlags.verify {
 	case verifyInMem:
 		recordingStrategy = NewInMemRecorder()
+		fmt.Println("using in-memory recorder")
 	case verifyInSQLite:
 		recordingStrategy = NewSqlLiteRecorder()
+		fmt.Println("using SqLite recorder")
 	default:
+		fmt.Println("no recording")
 	}
 
 	ctx, stopExecution := context.WithCancel(context.Background())
@@ -117,24 +130,25 @@ func main() {
 
 	var generateDone *sync.WaitGroup
 	if strings.Compare(cmdFlags.generate, "y") == 0 {
-		generateDone = GenerateCmd(ctx, cmdFlags.rootPath, cmdFlags.size, &recordingStrategy, errorChan, nil)
+		fmt.Println("preparing to generate files")
+		generateDone = GenerateCmd(ctx, cmdFlags.rootPath, int64(sizeBytes), &recordingStrategy, errorChan, nil)
 	}
 
 	var verifyDone *sync.WaitGroup
 	if len(cmdFlags.verify) > 0 {
-		go func() {
-			// verify strictly after all recording has been done
-			if generateDone != nil {
-				generateDone.Wait()
-			}
+		fmt.Println("preparing to verify files")
 
-			wg, err := VerifyCmd(ctx, &recordingStrategy, cmdFlags.rootPath, errorChan)
-			if err != nil {
-				panic(err)
-			}
+		// verify strictly after all recording has been done
+		if generateDone != nil {
+			generateDone.Wait()
+		}
 
-			verifyDone = wg
-		}()
+		wg, err := VerifyCmd(ctx, &recordingStrategy, cmdFlags.rootPath, errorChan)
+		if err != nil {
+			panic(err)
+		}
+
+		verifyDone = wg
 	}
 
 loop:
@@ -157,7 +171,12 @@ loop:
 		}
 	}
 
-	fmt.Println("All done, exiting.")
+	fmt.Println("All done, exiting")
+	if strings.Compare(cmdFlags.waitbeforeexit, "y") == 0 {
+		fmt.Println("Press return to exit...")
+		reader := bufio.NewReader(os.Stdin)
+		reader.ReadLine()
+	}
 }
 
 func waitForAllCommands(cmds ...*sync.WaitGroup) chan rune {
