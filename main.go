@@ -131,7 +131,7 @@ func main() {
 	var generateDone *sync.WaitGroup
 	if strings.Compare(cmdFlags.generate, "y") == 0 {
 		fmt.Println("preparing to generate files")
-		generateDone = GenerateCmd(ctx, cmdFlags.rootPath, int64(sizeBytes), &recordingStrategy, errorChan, nil)
+		generateDone = GenerateCmd(ctx, rootPath, int64(sizeBytes), &recordingStrategy, errorChan, nil)
 	}
 
 	var verifyDone *sync.WaitGroup
@@ -143,7 +143,7 @@ func main() {
 			generateDone.Wait()
 		}
 
-		wg, err := VerifyCmd(ctx, &recordingStrategy, cmdFlags.rootPath, errorChan)
+		wg, err := VerifyCmd(ctx, &recordingStrategy, rootPath, errorChan)
 		if err != nil {
 			panic(err)
 		}

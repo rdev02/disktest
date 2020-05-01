@@ -96,8 +96,9 @@ func verifyVolume(ctx context.Context, recorder *IFileRecorder, volumeRoot strin
 	if len(remainingFiles) > 0 {
 		fmt.Fprintln(os.Stderr, "ERR: not all files were read/verified. Missing files:")
 		for _, file := range remainingFiles {
-			fmt.Fprintln(os.Stderr, file.path)
+			fmt.Fprintln(os.Stderr, file)
 		}
+		fmt.Fprintln(os.Stderr, "ERR: not all files were read/verified. See above for the list of missing/differing filles")
 	} else {
 		fmt.Println("Success: all files were read and verified")
 	}
