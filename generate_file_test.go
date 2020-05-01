@@ -5,10 +5,12 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	sizeformat "github.com/rdev02/size-format"
 )
 
 func TestGenerateLen(t *testing.T) {
-	res, err := GenerateLen(context.Background(), 1, "./a")
+	res, err := GenerateLen(context.Background(), 10*sizeformat.MB, "./a")
 	defer os.Remove("./a")
 	if err != nil {
 		t.Errorf("unexpected error %v", err)

@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"time"
 
 	sizeFormat "github.com/rdev02/size-format"
@@ -27,6 +29,8 @@ func GenerateLen(ctx context.Context, size int64, path string) (string, error) {
 	}
 	defer f.Close()
 
+	fileName := filepath.Base(path)
+
 	hash := md5.New()
 	hashedWriter := io.MultiWriter(f, hash)
 	actualBuffer := size
@@ -36,22 +40,44 @@ func GenerateLen(ctx context.Context, size int64, path string) (string, error) {
 	tmp := make([]byte, actualBuffer)
 
 	rand.Seed(time.Now().UnixNano())
+	var errorWrite error = nil
+	allDone := make(chan int)
 	var written int64 = 0
-	for ; written < size; written += defaultBuffer {
-		select {
-		case <-ctx.Done():
-			break
-		default:
-		}
+	go func() {
+		defer close(allDone)
 
-		rand.Read(tmp)
-		_, err := hashedWriter.Write(tmp)
-		if err != nil {
-			return "", err
+		for ; written < size; written += defaultBuffer {
+			select {
+			case <-ctx.Done():
+				break
+			default:
+			}
+
+			rand.Read(tmp)
+			_, err := hashedWriter.Write(tmp)
+			if err != nil {
+				errorWrite = err
+			}
+		}
+	}()
+
+waitLoop:
+	for {
+		select {
+		case <-allDone:
+			break waitLoop
+		case <-time.After(10 * time.Second):
+			fmt.Println(
+				fmt.Sprintf("%s: [%s/%s] %.2f",
+					fileName,
+					sizeFormat.ToString(uint64(written)),
+					sizeFormat.ToString(uint64(size)),
+					math.Round((float64(written)/float64(size))*100)),
+				"%")
 		}
 	}
 
-	return fmt.Sprintf("%x", string(hash.Sum(nil))), nil
+	return fmt.Sprintf("%x", string(hash.Sum(nil))), errorWrite
 }
 
 //GetFileMd5 generates MD5 of the file at path
