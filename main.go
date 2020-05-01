@@ -105,13 +105,15 @@ func main() {
 		return
 	}
 
-	var recordingStrategy IFileRecorder = nil
+	var recordingStrategy *IFileRecorder
 	switch cmdFlags.verify {
 	case verifyInMem:
-		recordingStrategy = NewInMemRecorder()
+		rec := IFileRecorder(NewInMemRecorder())
+		recordingStrategy = &rec
 		fmt.Println("using in-memory recorder")
 	case verifyInSQLite:
-		recordingStrategy = NewSqlLiteRecorder()
+		rec := IFileRecorder(NewSqlLiteRecorder())
+		recordingStrategy = &rec
 		fmt.Println("using SqLite recorder")
 	default:
 		fmt.Println("no recording")
@@ -131,11 +133,11 @@ func main() {
 	var generateDone *sync.WaitGroup
 	if strings.Compare(cmdFlags.generate, "y") == 0 {
 		fmt.Println("preparing to generate files")
-		generateDone = GenerateCmd(ctx, rootPath, int64(sizeBytes), &recordingStrategy, errorChan, nil)
+		generateDone = GenerateCmd(ctx, rootPath, int64(sizeBytes), recordingStrategy, errorChan, nil)
 	}
 
 	var verifyDone *sync.WaitGroup
-	if len(cmdFlags.verify) > 0 {
+	if len(cmdFlags.verify) > 0 && recordingStrategy != nil {
 		fmt.Println("preparing to verify files")
 
 		// verify strictly after all recording has been done
@@ -143,12 +145,14 @@ func main() {
 			generateDone.Wait()
 		}
 
-		wg, err := VerifyCmd(ctx, &recordingStrategy, rootPath, errorChan)
+		wg, err := VerifyCmd(ctx, recordingStrategy, rootPath, errorChan)
 		if err != nil {
 			panic(err)
 		}
 
 		verifyDone = wg
+	} else {
+		fmt.Println("no verification. please check your -verify flag")
 	}
 
 loop:

@@ -168,8 +168,8 @@ func TestGetRandomFileSizeFunc(t *testing.T) {
 	}
 
 	generated2 := f()
-	if generated2 < constraint.min || generated2 > cap || generated == generated2 {
-		t.Error("generated values should have been between", constraint.min, "and", cap, "and be different from", generated, "but was", generated2)
+	if generated2 < constraint.min || generated2 > cap {
+		t.Error("generated values should have been between", constraint.min, "and", cap, "but was", generated2)
 	}
 
 	constraint.min = 100 * sizeFormat.KB
