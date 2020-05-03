@@ -36,19 +36,24 @@ func TestVerifyCmd(t *testing.T) {
 }
 
 func TestVerifyVolume(t *testing.T) {
-	recordingStrategy := IFileRecorder(NewInMemRecorder())
 	errQ := make(chan error)
-	go func() {
-		defer close(errQ)
-		verifyVolume(context.Background(), &recordingStrategy, "./res", errQ)
-	}()
+	foundFiles := verifyVolume(context.Background(), "./res", errQ)
 
-	select {
-	case err, ok := <-errQ:
-		if !ok {
-			break
+mainLoop:
+	for {
+		select {
+		case err, ok := <-errQ:
+			if !ok {
+				break mainLoop
+			}
+			t.Error(err)
+
+		case file, ok := <-foundFiles:
+			if !ok {
+				break mainLoop
+			}
+			t.Log("found", file)
 		}
-		t.Error(err)
 	}
 }
 

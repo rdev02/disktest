@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime"
 	"runtime/pprof"
 	"strings"
 	"sync"
@@ -26,7 +27,8 @@ type (
 		generate       string
 		cpuprofile     string
 		memprofile     string
-		waitbeforeexit string
+		waitBeforeExit string
+		maxParallel    int
 	}
 
 	//TempFile connects main/generator/processor and recorder
@@ -55,7 +57,8 @@ func defaultFlags() *cmdFlags {
 		size:           "1GB",
 		verify:         verifyInMem,
 		generate:       "y",
-		waitbeforeexit: "n",
+		waitBeforeExit: "n",
+		maxParallel:    0,
 	}
 
 	return &defaults
@@ -68,7 +71,8 @@ func main() {
 	flag.StringVar(&cmdFlags.verify, "verify", cmdFlags.verify, fmt.Sprintf("verify results via %s/%s/none", verifyInMem, verifyInSQLite))
 	flag.StringVar(&cmdFlags.cpuprofile, "cpuprofile", "", "write cpu profile to file")
 	flag.StringVar(&cmdFlags.memprofile, "memprofile", "", "write mem profile to file")
-	flag.StringVar(&cmdFlags.waitbeforeexit, "waitbeforeexit", cmdFlags.waitbeforeexit, "wait before exiting y/n")
+	flag.StringVar(&cmdFlags.waitBeforeExit, "waitbeforeexit", cmdFlags.waitBeforeExit, "wait before exiting y/n")
+	flag.IntVar(&cmdFlags.maxParallel, "maxparallel", cmdFlags.maxParallel, "max parallel processing streams. default(0) = CPU cores - 1")
 
 	flag.Parse()
 
@@ -105,6 +109,10 @@ func main() {
 		return
 	}
 
+	if cmdFlags.maxParallel < 0 {
+		panic("-maxparallel flag must be >= 0")
+	}
+
 	var recordingStrategy *IFileRecorder
 	switch cmdFlags.verify {
 	case verifyInMem:
@@ -120,6 +128,15 @@ func main() {
 	}
 
 	ctx, stopExecution := context.WithCancel(context.Background())
+	maxThreads := cmdFlags.maxParallel
+	if maxThreads == 0 {
+		maxThreads = runtime.NumCPU() - 1
+		if maxThreads == 0 {
+			maxThreads = 1
+		}
+	}
+
+	ctx = context.WithValue(ctx, "max_parallel", maxThreads)
 
 	// start files generation routine
 	rootPath := flag.Args()[0]
@@ -176,7 +193,7 @@ loop:
 	}
 
 	fmt.Println("All done, exiting")
-	if strings.Compare(cmdFlags.waitbeforeexit, "y") == 0 {
+	if strings.Compare(cmdFlags.waitBeforeExit, "y") == 0 {
 		fmt.Println("Press return to exit...")
 		reader := bufio.NewReader(os.Stdin)
 		reader.ReadLine()
@@ -226,4 +243,13 @@ func processOrDone(ctx context.Context, ch <-chan (*TempFile)) <-chan (*TempFile
 	}()
 
 	return res
+}
+
+func GetIntOrDefault(ctx context.Context, key interface{}, def int) int {
+	val := ctx.Value(key)
+	if val == nil {
+		return def
+	}
+
+	return val.(int)
 }

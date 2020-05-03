@@ -66,7 +66,7 @@ waitLoop:
 		select {
 		case <-allDone:
 			break waitLoop
-		case <-time.After(10 * time.Second):
+		case <-time.After(1 * time.Minute):
 			fmt.Println(
 				fmt.Sprintf("%s: [%s/%s] %.2f",
 					fileName,

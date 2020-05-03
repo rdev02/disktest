@@ -6,7 +6,6 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"time"
 
@@ -42,10 +41,7 @@ var (
 //GenerateCmd starts the fs population process and recording of such process, if indicated by recorder
 func GenerateCmd(ctx context.Context, rootPath string, size int64, recorder *IFileRecorder, errorChan chan<- error,
 	writeFn writeFunc) *sync.WaitGroup {
-	chanBuff := runtime.NumCPU() - 1
-	if chanBuff == 0 {
-		chanBuff = 1
-	}
+	chanBuff := GetIntOrDefault(ctx, "max_parallel", 1)
 	fmt.Println("generating using", chanBuff, "concurrent writers")
 
 	workQueue := generateVolume(ctx, chanBuff, rootPath, size, errorChan)
