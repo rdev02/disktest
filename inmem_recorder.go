@@ -8,8 +8,8 @@ import (
 
 type (
 	inMemFile struct {
-		file    *TempFile
-		checked bool
+		file   *TempFile
+		marked bool
 	}
 
 	//InMemRecorder holding records in memory
@@ -35,8 +35,8 @@ func (rec InMemRecorder) RecordFile(file *TempFile) error {
 	}
 
 	rec.filesMap[file.hash] = &inMemFile{
-		file:    file,
-		checked: false,
+		file:   file,
+		marked: false,
 	}
 
 	return nil
@@ -59,11 +59,11 @@ func (rec InMemRecorder) MarkFileExits(file *TempFile) (bool, error) {
 	var err error = nil
 	val, ok := rec.filesMap[file.hash]
 	if ok {
-		if val.checked {
+		if val.marked {
 			fmt.Println("WARN", file.hash, "has already been marked")
 		}
 
-		val.checked = true
+		val.marked = true
 	} else {
 		err = fmt.Errorf("%s does not exist", file.hash)
 	}
@@ -71,13 +71,38 @@ func (rec InMemRecorder) MarkFileExits(file *TempFile) (bool, error) {
 	return ok, err
 }
 
+//FilesNotCheckedYet implements IFileRecorder
 func (rec InMemRecorder) FilesNotCheckedYet() ([]*TempFile, error) {
 	result := make([]*TempFile, 0)
 	for _, tmp := range rec.filesMap {
-		if !tmp.checked {
+		if !tmp.marked {
 			result = append(result, tmp.file)
 		}
 	}
 
 	return result, nil
+}
+
+//GetTotalUnmarked implements IFileRecorder
+func (rec InMemRecorder) GetTotalUnmarked() (int64, error) {
+	res := int64(0)
+	for _, tmp := range rec.filesMap {
+		if !tmp.marked {
+			res += tmp.file.size
+		}
+	}
+
+	return res, nil
+}
+
+//GetTotalMarked implements IFileRecorder
+func (rec InMemRecorder) GetTotalMarked() (int64, error) {
+	res := int64(0)
+	for _, tmp := range rec.filesMap {
+		if tmp.marked {
+			res += tmp.file.size
+		}
+	}
+
+	return res, nil
 }

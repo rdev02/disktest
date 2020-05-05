@@ -6,10 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"math/rand"
 	"os"
-	"path/filepath"
 	"time"
 
 	sizeFormat "github.com/rdev02/size-format"
@@ -29,8 +27,6 @@ func GenerateLen(ctx context.Context, size int64, path string) (string, error) {
 	}
 	defer f.Close()
 
-	fileName := filepath.Base(path)
-
 	hash := md5.New()
 	hashedWriter := io.MultiWriter(f, hash)
 	actualBuffer := size
@@ -41,39 +37,30 @@ func GenerateLen(ctx context.Context, size int64, path string) (string, error) {
 
 	rand.Seed(time.Now().UnixNano())
 	var errorWrite error = nil
-	allDone := make(chan int)
-	var written int64 = 0
-	go func() {
-		defer close(allDone)
 
-		for ; written < size; written += defaultBuffer {
-			select {
-			case <-ctx.Done():
-				break
-			default:
-			}
-
-			rand.Read(tmp)
-			_, err := hashedWriter.Write(tmp)
-			if err != nil {
-				errorWrite = err
-			}
-		}
-	}()
-
-waitLoop:
-	for {
+	t := size / actualBuffer
+	for i := int64(0); i < t; i++ {
 		select {
-		case <-allDone:
-			break waitLoop
-		case <-time.After(1 * time.Minute):
-			fmt.Println(
-				fmt.Sprintf("%s: [%s/%s] %.2f",
-					fileName,
-					sizeFormat.ToString(written),
-					sizeFormat.ToString(size),
-					math.Round((float64(written)/float64(size))*100)),
-				"%")
+		case <-ctx.Done():
+			break
+		default:
+		}
+
+		rand.Read(tmp)
+		_, err := hashedWriter.Write(tmp)
+		if err != nil {
+			errorWrite = err
+			break
+		}
+	}
+
+	rem := size - t*actualBuffer
+	if rem > 0 {
+		tmp = make([]byte, rem)
+		rand.Read(tmp)
+		_, err := hashedWriter.Write(tmp)
+		if err != nil {
+			errorWrite = err
 		}
 	}
 

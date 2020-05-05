@@ -66,15 +66,15 @@ func TestLogProgressToStdout(t *testing.T) {
 	ch := make(chan (*TempFile))
 	go func() {
 		defer close(ch)
-		ch <- &TempFile{}
+		ch <- &TempFile{size: 1}
 	}()
 
-	logProgressToStdout(context.Background(), ch)
+	logProgressToStdout(context.Background(), ch, 2)
 
 	ch = make(chan (*TempFile))
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	logProgressToStdout(ctx, ch)
+	logProgressToStdout(ctx, ch, 1)
 }
 
 func TestWriteVolume(t *testing.T) {

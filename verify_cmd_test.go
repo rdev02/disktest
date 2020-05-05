@@ -81,3 +81,13 @@ func TestRecordVolume(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+func TestReportVerificationProgressEveryMinute(t *testing.T) {
+	rec := IFileRecorder(NewInMemRecorder())
+	rec.RecordFile(&TempFile{size: 3})
+	rec.RecordFile(&TempFile{size: 2})
+	exitCH := make(chan interface{})
+	close(exitCH)
+
+	reportVerificationProgressEveryMinute(context.Background(), &rec, exitCH)
+}

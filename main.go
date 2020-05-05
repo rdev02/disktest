@@ -44,6 +44,8 @@ type (
 		MarkFileExits(file *TempFile) (bool, error)
 		VerifyFileExits(file *TempFile) (bool, error)
 		FilesNotCheckedYet() ([]*TempFile, error)
+		GetTotalUnmarked() (int64, error)
+		GetTotalMarked() (int64, error)
 	}
 )
 
@@ -77,8 +79,10 @@ func main() {
 	flag.Parse()
 
 	sizeBytes, err := sizeFormat.ToNum(&cmdFlags.size)
-	if err != nil {
-		panic(err)
+	if err != nil || sizeBytes <= 0 {
+		fmt.Fprintln(os.Stderr, "Invaid size", sizeBytes)
+		fmt.Fprintln(os.Stderr, err)
+		return
 	}
 	fmt.Println("will generate", sizeFormat.ToString(sizeBytes))
 
@@ -245,6 +249,7 @@ func processOrDone(ctx context.Context, ch <-chan (*TempFile)) <-chan (*TempFile
 	return res
 }
 
+//GetIntOrDefault return the int vaue from context or specified default
 func GetIntOrDefault(ctx context.Context, key interface{}, def int) int {
 	val := ctx.Value(key)
 	if val == nil {

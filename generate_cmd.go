@@ -49,8 +49,10 @@ func GenerateCmd(ctx context.Context, rootPath string, size int64, recorder *IFi
 	doneQueue := make(chan (*TempFile))
 	var wg sync.WaitGroup
 	wg.Add(chanBuff)
+	genDoneCh := make(chan interface{})
 	go func() {
 		defer close(doneQueue)
+		defer close(genDoneCh)
 
 		if writeFn == nil {
 			writeFn = writeVolume
@@ -65,16 +67,38 @@ func GenerateCmd(ctx context.Context, rootPath string, size int64, recorder *IFi
 
 	if recorder != nil {
 		go recordVolume(ctx, recorder, doneQueue, errorChan)
+		go reportGenerationProgressEveryMinute(ctx, size, recorder, genDoneCh)
 	} else {
-		go logProgressToStdout(ctx, doneQueue)
+		go logProgressToStdout(ctx, doneQueue, size)
 	}
 
 	return &wg
 }
 
-func logProgressToStdout(ctx context.Context, doneQueue <-chan (*TempFile)) {
+func reportGenerationProgressEveryMinute(ctx context.Context, totalSize int64, recorder *IFileRecorder, exit chan interface{}) {
+mainLoop:
+	for {
+		select {
+		case <-ctx.Done():
+			break mainLoop
+		case <-exit:
+			break mainLoop
+		case <-time.After(1 * time.Minute):
+			generated, err := (*recorder).GetTotalUnmarked()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+			} else {
+				fmt.Printf("Generation: %2.3f%% done.\n", float64(generated*100)/float64(totalSize))
+			}
+		}
+	}
+}
+
+func logProgressToStdout(ctx context.Context, doneQueue <-chan (*TempFile), totalSize int64) {
+	processed := int64(0)
 	for workItem := range processOrDone(ctx, doneQueue) {
-		fmt.Println("generated:", workItem)
+		processed += workItem.size
+		fmt.Printf("generated: %v. %2.3f%% done.\n", workItem, float64(processed*100)/float64(totalSize))
 	}
 }
 

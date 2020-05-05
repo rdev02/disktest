@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 //VerifyCmd start the generated fs verification process
@@ -20,6 +21,7 @@ func VerifyCmd(ctx context.Context, recorder *IFileRecorder, volumeRoot string, 
 	wg.Add(1)
 	chanBuff := GetIntOrDefault(ctx, "max_parallel", 1)
 
+	verificationDoneCh := make(chan interface{})
 	go func() {
 		defer wg.Done()
 		filesDiscovered := verifyVolume(ctx, volumeRoot, errorChan)
@@ -33,6 +35,7 @@ func VerifyCmd(ctx context.Context, recorder *IFileRecorder, volumeRoot string, 
 		}
 
 		verifyThreads.Wait()
+		close(verificationDoneCh)
 
 		remainingFiles, err := (*recorder).FilesNotCheckedYet()
 		if err != nil {
@@ -50,8 +53,34 @@ func VerifyCmd(ctx context.Context, recorder *IFileRecorder, volumeRoot string, 
 			fmt.Println("Success: all files were read and verified")
 		}
 	}()
+	go reportVerificationProgressEveryMinute(ctx, recorder, verificationDoneCh)
 
 	return &wg, nil
+}
+
+func reportVerificationProgressEveryMinute(ctx context.Context, recorder *IFileRecorder, exit chan interface{}) {
+	totalSize, err := (*recorder).GetTotalUnmarked()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Won't report verification progress:", err)
+		return
+	}
+
+mainLoop:
+	for {
+		select {
+		case <-ctx.Done():
+			break mainLoop
+		case <-exit:
+			break mainLoop
+		case <-time.After(1 * time.Minute):
+			generated, err := (*recorder).GetTotalMarked()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+			} else {
+				fmt.Printf("Verification: %2.3f%% done.\n", float64(generated*100)/float64(totalSize))
+			}
+		}
+	}
 }
 
 func verifyFiles(ctx context.Context, filesDiscovered <-chan *TempFile, recorder *IFileRecorder, errorChan chan<- error, wg *sync.WaitGroup) {
