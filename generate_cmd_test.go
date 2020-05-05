@@ -12,22 +12,22 @@ import (
 
 func TestGenerateCmd(t *testing.T) {
 	rootPath := "build/test"
-	size := 10 * sizeFormat.MB
+	size := int64(10 * sizeFormat.MB)
 	errCh := make(chan error)
 
 	os.MkdirAll(rootPath, 0700)
 	defer os.RemoveAll(rootPath)
 
-	done := GenerateCmd(context.Background(), rootPath, int64(size), nil, errCh, nil)
+	done := GenerateCmd(context.Background(), rootPath, size, nil, errCh, nil)
 	done.Wait()
 }
 
 func TestGenerateVolume(t *testing.T) {
 	rootPath := "build/test"
-	size := 131 * sizeFormat.GB
+	size := int64(131 * sizeFormat.GB)
 	errCh := make(chan error)
 
-	workQ := generateVolume(context.Background(), 2, rootPath, int64(size), errCh)
+	workQ := generateVolume(context.Background(), 2, rootPath, size, errCh)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -48,15 +48,15 @@ func TestGenerateVolume(t *testing.T) {
 				if !ok {
 					break loop
 				}
-				fmt.Println("generated:", sizeFormat.ToString(uint64(val.size)), val.path)
+				fmt.Println("generated:", sizeFormat.ToString(val.size), val.path)
 				totalGenerated += val.size
 			}
 		}
 
 		if int64(size) != totalGenerated {
-			t.Error("exected", sizeFormat.ToString(uint64(size)), "but generated only", sizeFormat.ToString(uint64(totalGenerated)))
+			t.Error("exected", sizeFormat.ToString(size), "but generated only", sizeFormat.ToString(totalGenerated))
 		}
-		fmt.Println("total generated:", sizeFormat.ToString(uint64(totalGenerated)))
+		fmt.Println("total generated:", sizeFormat.ToString(totalGenerated))
 	}()
 
 	wg.Wait()

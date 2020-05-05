@@ -70,8 +70,8 @@ waitLoop:
 			fmt.Println(
 				fmt.Sprintf("%s: [%s/%s] %.2f",
 					fileName,
-					sizeFormat.ToString(uint64(written)),
-					sizeFormat.ToString(uint64(size)),
+					sizeFormat.ToString(written),
+					sizeFormat.ToString(size),
 					math.Round((float64(written)/float64(size))*100)),
 				"%")
 		}

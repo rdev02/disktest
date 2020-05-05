@@ -91,7 +91,7 @@ func writeVolume(ctx context.Context, workQueue <-chan (*TempFile), doneQueue ch
 }
 
 func writeRandomFile(ctx context.Context, workItem *TempFile) error {
-	fmt.Fprintln(os.Stdout, "generating", sizeFormat.ToString(uint64(workItem.size)), workItem.path)
+	fmt.Fprintln(os.Stdout, "generating", sizeFormat.ToString(workItem.size), workItem.path)
 	fileHash, err := GenerateLen(ctx, workItem.size, workItem.path)
 	if err != nil {
 		return fmt.Errorf("error while generating %s: %v", workItem.path, err)

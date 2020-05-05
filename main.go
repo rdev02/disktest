@@ -48,7 +48,7 @@ type (
 )
 
 func (tf *TempFile) String() string {
-	return fmt.Sprint(tf.path, " size: ", sizeFormat.ToString(uint64(tf.size)), " hash: ", tf.hash)
+	return fmt.Sprint(tf.path, " size: ", sizeFormat.ToString(tf.size), " hash: ", tf.hash)
 }
 
 func defaultFlags() *cmdFlags {
