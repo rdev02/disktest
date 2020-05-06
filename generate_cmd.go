@@ -223,7 +223,7 @@ func generateFilesForPathElement(
 }
 
 func addToProducerQueue(size int64, pathElement *volumePathFolder, queue chan<- (*TempFile)) {
-	pathToGenerateAt := filepath.Join(pathElement.basePath, fmt.Sprintf("file_%d.tmp", pathElement.filesNum))
+	pathToGenerateAt := filepath.Join(pathElement.basePath, fmt.Sprintf("file_%d.tmp", numFilesPerFolder-pathElement.filesNum))
 	queue <- &TempFile{path: pathToGenerateAt, size: size}
 	pathElement.filesNum--
 }
