@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	sizeFormat "github.com/rdev02/size-format"
 )
 
 //VerifyCmd start the generated fs verification process
@@ -91,13 +93,21 @@ func verifyFiles(ctx context.Context, filesDiscovered <-chan *TempFile, recorder
 	for file := range processOrDone(ctx, filesDiscovered) {
 		path := file.path
 
-		fmt.Println("verifying", file)
+		fmt.Println("verifying", file.path, sizeFormat.ToString(file.size))
+		fileHash, err := GetFileMd5(path)
+		if err != nil {
+			errorChan <- err
+			continue
+		}
+
+		file.hash = fileHash
+
 		if ok, err := rec.VerifyFileExits(file); !ok || err != nil {
 			fmt.Fprintln(os.Stdout, "WARN: file", path, file.hash, "was not recorded previously", err)
 			continue
 		}
 
-		_, err := rec.MarkFileExits(file)
+		_, err = rec.MarkFileExits(file)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "ERR: could not mark file as existing ", path, file.hash)
 			errorChan <- err
@@ -143,16 +153,9 @@ func verifyVolume(ctx context.Context, volumeRoot string, errorChan chan<- error
 				return nil
 			}
 
-			fileHash, err := GetFileMd5(path)
-			if err != nil {
-				errorChan <- err
-				return err
-			}
-
 			file := TempFile{
 				path: path,
 				size: info.Size(),
-				hash: fileHash,
 			}
 
 			filesFound <- &file
