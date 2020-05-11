@@ -84,7 +84,6 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		return
 	}
-	fmt.Println("will generate", sizeFormat.ToString(sizeBytes))
 
 	// cpu profiling
 	if cmdFlags.cpuprofile != "" {
@@ -154,6 +153,7 @@ func main() {
 	var generateDone *sync.WaitGroup
 	if strings.Compare(cmdFlags.generate, "y") == 0 {
 		fmt.Println("preparing to generate files")
+		fmt.Println("will generate", sizeFormat.ToString(sizeBytes))
 		generateDone = GenerateCmd(ctx, rootPath, int64(sizeBytes), recordingStrategy, errorChan, nil)
 	}
 
